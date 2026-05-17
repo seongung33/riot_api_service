@@ -1,27 +1,14 @@
-version: '3.8'
-
 services:
-  # 1. 데이터베이스: PostgreSQL (명세서 v2에서 지정) [cite: 50, 51]
-  db:
-    image: postgres:15
-    container_name: lol_insight_db
-    restart: always
+  postgres:
+    image: postgres:16
+    container_name: riot_insight_postgres
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_DB=insight_lab_db
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=your_password # .env와 일치시켜야 함
-    ports:
-      - "5432:5432"
-
-  # 2. 메시지 브로커: Redis (Celery 비동기 처리를 위해 필수) [cite: 42, 43]
-  redis:
-    image: redis:alpine
-    container_name: lol_insight_redis
-    restart: always
-    ports:
-      - "6379:6379"
 
 volumes:
   postgres_data:
