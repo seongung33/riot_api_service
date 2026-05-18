@@ -22,6 +22,16 @@ class RiotAccountSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
 
+class AccountSearchRequestSerializer(serializers.Serializer):
+    """Request body for searching and importing a Riot account."""
+
+    game_name = serializers.CharField(max_length=100)
+    tag_line = serializers.CharField(max_length=20, default="KR1")
+    region = serializers.CharField(max_length=20, required=False, default="asia")
+    count = serializers.IntegerField(required=False, default=5, min_value=1, max_value=20)
+    queue = serializers.IntegerField(required=False, default=420, min_value=0)
+
+
 class RecentMatchSerializer(serializers.Serializer):
     """Serializer for a player's recent match row."""
 
@@ -89,3 +99,18 @@ class FeedbackSerializer(serializers.Serializer):
     interpretation = serializers.CharField()
     recommendation = serializers.CharField()
     target = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+
+
+class PhaseMetricSerializer(serializers.Serializer):
+    """Serializer for account phase metrics."""
+
+    match_id = serializers.CharField()
+    game_start_time = serializers.DateTimeField()
+    champion_id = serializers.IntegerField()
+    champion_name = serializers.CharField()
+    position = serializers.CharField()
+    lane_cs_diff_10 = serializers.IntegerField(allow_null=True)
+    lane_gold_diff_10 = serializers.IntegerField(allow_null=True)
+    lane_xp_diff_10 = serializers.IntegerField(allow_null=True)
+    death_before_14 = serializers.BooleanField()
+    objective_death_count = serializers.IntegerField()

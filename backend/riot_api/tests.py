@@ -7,6 +7,7 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from accounts.models import RiotAccount
+from analytics.models import PlayerMatchPhaseMetric
 from matches.models import Match, MatchParticipant, TimelineEvent, TimelineFrame
 from matches.tests import sample_match_detail, sample_timeline_detail
 
@@ -41,7 +42,7 @@ class ImportRecentMatchesViewTests(TestCase):
     def test_import_recent_matches_saves_account_and_match_payloads(self):
         api_client = APIClient()
 
-        with patch("riot_api.views.RiotApiClient") as client_class:
+        with patch("riot_api.services.RiotApiClient") as client_class:
             riot_client = client_class.return_value
             riot_client.get_account_by_riot_id.return_value = {
                 "puuid": "sample-puuid-1",
@@ -70,4 +71,5 @@ class ImportRecentMatchesViewTests(TestCase):
         self.assertEqual(MatchParticipant.objects.count(), 2)
         self.assertEqual(TimelineFrame.objects.count(), 4)
         self.assertEqual(TimelineEvent.objects.count(), 2)
+        self.assertEqual(PlayerMatchPhaseMetric.objects.count(), 2)
         self.assertEqual(response.data["imported_match_ids"], ["KR_1234567890"])

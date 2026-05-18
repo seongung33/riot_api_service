@@ -5,7 +5,9 @@ from copy import deepcopy
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
+from analytics.models import PlayerMatchPhaseMetric
 from matches.tests import sample_match_detail, sample_timeline_detail
 from matches.services import save_match_bundle
 
@@ -23,6 +25,7 @@ class AccountAnalysisApiTests(TestCase):
         )
         save_match_bundle(sample_match_detail(), sample_timeline_detail())
         save_match_bundle(_second_match_detail(), sample_timeline_detail())
+        self.match = save_match_bundle(sample_match_detail(), sample_timeline_detail())
 
     def test_recent_matches_endpoint_returns_player_rows(self):
         response = self.api_client.get(
@@ -69,6 +72,29 @@ class AccountAnalysisApiTests(TestCase):
         self.assertEqual(metrics["average_cs"]["value"], 138.0)
         self.assertIn("CS", metrics["average_cs"]["interpretation"])
 
+    def test_feedback_endpoint_uses_phase_metrics(self):
+        participant = self.match.participants.get(puuid=self.account.puuid)
+        PlayerMatchPhaseMetric.objects.create(
+            match=self.match,
+            puuid=self.account.puuid,
+            champion_id=participant.champion_id,
+            position=participant.individual_position,
+            lane_cs_diff_10=10,
+            lane_gold_diff_10=500,
+            lane_xp_diff_10=300,
+            death_before_14=True,
+            objective_death_count=2,
+        )
+
+        response = self.api_client.get(reverse("accounts:feedback", args=[self.account.id]))
+
+        self.assertEqual(response.status_code, 200)
+        metrics = {row["metric"]: row for row in response.data}
+        self.assertEqual(metrics["average_lane_cs_diff_10"]["category"], "laning")
+        self.assertEqual(metrics["average_lane_cs_diff_10"]["value"], 10.0)
+        self.assertEqual(metrics["death_before_14_rate"]["value"], 100.0)
+        self.assertEqual(metrics["objective_death_count"]["category"], "objective")
+
     def test_feedback_endpoint_returns_empty_list_when_account_has_no_matches(self):
         empty_account = RiotAccount.objects.create(
             puuid="empty-puuid",
@@ -81,6 +107,62 @@ class AccountAnalysisApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, [])
+
+    def test_phase_metrics_endpoint_returns_stored_account_metrics(self):
+        participant = self.match.participants.get(puuid=self.account.puuid)
+        PlayerMatchPhaseMetric.objects.create(
+            match=self.match,
+            puuid=self.account.puuid,
+            champion_id=participant.champion_id,
+            position=participant.individual_position,
+            lane_cs_diff_10=8,
+            lane_gold_diff_10=450,
+            lane_xp_diff_10=300,
+            death_before_14=False,
+            objective_death_count=1,
+        )
+
+        response = self.api_client.get(reverse("accounts:phase_metrics", args=[self.account.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["match_id"], "KR_1234567890")
+        self.assertEqual(response.data[0]["champion_name"], "Ahri")
+        self.assertEqual(response.data[0]["lane_cs_diff_10"], 8)
+        self.assertEqual(response.data[0]["lane_gold_diff_10"], 450)
+        self.assertEqual(response.data[0]["lane_xp_diff_10"], 300)
+        self.assertFalse(response.data[0]["death_before_14"])
+        self.assertEqual(response.data[0]["objective_death_count"], 1)
+
+    def test_search_endpoint_imports_and_returns_mvp_result(self):
+        with patch("accounts.views.import_recent_matches_for_account") as import_recent_matches:
+            import_recent_matches.return_value = (self.account, ["KR_1234567890"])
+
+            response = self.api_client.post(
+                reverse("accounts:search"),
+                {
+                    "game_name": "SampleName",
+                    "tag_line": "KR1",
+                    "region": "asia",
+                    "count": 1,
+                    "queue": 420,
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["account_id"], self.account.id)
+        self.assertEqual(response.data["imported_match_ids"], ["KR_1234567890"])
+        self.assertEqual(response.data["summary"]["game_count"], 2)
+        self.assertEqual(response.data["champions"][0]["champion_name"], "Ahri")
+        self.assertTrue(response.data["feedback"])
+        import_recent_matches.assert_called_once_with(
+            game_name="SampleName",
+            tag_line="KR1",
+            region="asia",
+            count=1,
+            queue=420,
+        )
 
 
 def _second_match_detail():

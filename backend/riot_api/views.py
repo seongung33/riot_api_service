@@ -4,14 +4,12 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.models import RiotAccount
-from matches.services import save_match_bundle
-
-from .client import RiotApiClient, RiotApiError
+from .client import RiotApiError
 from .serializers import (
     ImportRecentMatchesRequestSerializer,
     ImportRecentMatchesResponseSerializer,
 )
+from .services import import_recent_matches_for_account
 
 
 class ImportRecentMatchesView(APIView):
@@ -23,29 +21,13 @@ class ImportRecentMatchesView(APIView):
         data = request_serializer.validated_data
 
         try:
-            client = RiotApiClient(regional_route=data["region"])
-            account_data = client.get_account_by_riot_id(data["game_name"], data["tag_line"])
-            match_ids = client.get_match_ids_by_puuid(
-                account_data["puuid"],
+            account, imported_match_ids = import_recent_matches_for_account(
+                game_name=data["game_name"],
+                tag_line=data["tag_line"],
+                region=data["region"],
                 count=data["count"],
                 queue=data["queue"],
             )
-
-            account, _ = RiotAccount.objects.update_or_create(
-                puuid=account_data["puuid"],
-                defaults={
-                    "game_name": account_data.get("gameName", data["game_name"]),
-                    "tag_line": account_data.get("tagLine", data["tag_line"]),
-                    "region": data["region"],
-                },
-            )
-
-            imported_match_ids = []
-            for match_id in match_ids:
-                match_detail = client.get_match_detail(match_id)
-                timeline_detail = client.get_match_timeline(match_id)
-                match = save_match_bundle(match_detail, timeline_detail)
-                imported_match_ids.append(match.match_id)
 
         except RiotApiError as exc:
             return Response(

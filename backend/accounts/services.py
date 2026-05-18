@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
+from analytics.models import PlayerMatchPhaseMetric
 from matches.models import MatchParticipant
 
 from .models import RiotAccount
@@ -90,9 +91,7 @@ def get_champion_performance(account: RiotAccount, limit: int = 50) -> list[dict
                 "champion_name": champion_name,
                 "game_count": game_count,
                 "win_rate": _percent(wins, game_count),
-                "average_kda": _round(
-                    sum(_kda(row.kills, row.deaths, row.assists) for row in rows) / game_count
-                ),
+                "average_kda": _round(sum(_kda(row.kills, row.deaths, row.assists) for row in rows) / game_count),
                 "average_cs": _average([row.total_cs for row in rows]),
                 "average_gold": _average([row.gold_earned for row in rows]),
                 "average_vision_score": _average([row.vision_score for row in rows]),
@@ -104,17 +103,17 @@ def get_champion_performance(account: RiotAccount, limit: int = 50) -> list[dict
 
 
 def get_account_feedback(account: RiotAccount, limit: int = 20) -> list[dict[str, Any]]:
-    """Return simple rule-based feedback cards from recent match stats.
-
-    These first-pass thresholds are intentionally easy to explain. They should
-    be revisited after we have more real match samples by position and queue.
-    """
+    """Return rule-based feedback cards from recent match and phase metrics."""
 
     summary = get_account_summary(account, limit=limit)
     if summary["game_count"] == 0:
         return []
 
     feedback = []
+    phase_summary = _summarize_phase_metrics(account, limit=limit)
+
+    if phase_summary["game_count"] > 0:
+        _add_phase_feedback(feedback, phase_summary)
 
     if summary["average_deaths"] >= 6:
         feedback.append(
@@ -133,8 +132,8 @@ def get_account_feedback(account: RiotAccount, limit: int = 20) -> list[dict[str
                 "category": "laning",
                 "metric": "average_cs",
                 "value": summary["average_cs"],
-                "interpretation": "최근 경기의 CS 수급이 낮은 편입니다.",
-                "recommendation": "초반 10분 동안 라인 손실을 줄이고, 귀환 전 웨이브를 밀어 넣는 타이밍을 점검해보세요.",
+                "interpretation": "최근 경기의 전체 CS 수급이 낮은 편입니다.",
+                "recommendation": "초반 라인전뿐 아니라 중반 사이드 웨이브 회수까지 포함해, 빈 라인을 놓치는 시간을 줄여보세요.",
             }
         )
 
@@ -176,12 +175,111 @@ def get_account_feedback(account: RiotAccount, limit: int = 20) -> list[dict[str
     return feedback
 
 
+def get_phase_metrics(account: RiotAccount, limit: int = 20) -> list[dict[str, Any]]:
+    """Return stored phase metrics for one Riot account."""
+
+    metrics = list(
+        PlayerMatchPhaseMetric.objects.filter(puuid=account.puuid)
+        .select_related("match")
+        .order_by("-match__game_start_time", "-match__id")[:limit]
+    )
+
+    participant_map = {
+        participant.match_id: participant
+        for participant in MatchParticipant.objects.filter(
+            puuid=account.puuid,
+            match_id__in=[metric.match_id for metric in metrics],
+        )
+    }
+
+    return [_serialize_phase_metric(metric, participant_map.get(metric.match_id)) for metric in metrics]
+
+
 def _account_participants(account: RiotAccount):
     return (
         MatchParticipant.objects.filter(puuid=account.puuid)
         .select_related("match")
         .order_by("-match__game_start_time", "-match__id")
     )
+
+
+def _add_phase_feedback(feedback: list[dict[str, Any]], phase_summary: dict[str, Any]) -> None:
+    avg_cs_diff = phase_summary["average_lane_cs_diff_10"]
+    avg_gold_diff = phase_summary["average_lane_gold_diff_10"]
+    avg_xp_diff = phase_summary["average_lane_xp_diff_10"]
+    objective_deaths = phase_summary["objective_death_count"]
+    early_death_rate = phase_summary["death_before_14_rate"]
+
+    if avg_cs_diff is not None and avg_cs_diff <= -8:
+        feedback.append(
+            {
+                "category": "laning",
+                "metric": "average_lane_cs_diff_10",
+                "value": avg_cs_diff,
+                "interpretation": "최근 경기에서 10분 CS 차이가 상대보다 낮은 편입니다.",
+                "recommendation": "첫 귀환 전 웨이브를 무리하게 버리지 말고, 10분 전까지 라인 손실과 정글 합류 타이밍을 함께 점검해보세요.",
+            }
+        )
+    elif avg_cs_diff is not None and avg_cs_diff >= 8:
+        feedback.append(
+            {
+                "category": "laning",
+                "metric": "average_lane_cs_diff_10",
+                "value": avg_cs_diff,
+                "interpretation": "최근 경기에서 10분 CS 차이가 좋은 편입니다.",
+                "recommendation": "라인전에서 만든 CS 우위를 귀환 타이밍, 시야 장악, 첫 오브젝트 합류로 연결하는 데 집중해보세요.",
+            }
+        )
+
+    if avg_gold_diff is not None and avg_xp_diff is not None and avg_gold_diff < 0 and avg_xp_diff < 0:
+        feedback.append(
+            {
+                "category": "laning",
+                "metric": "lane_gold_xp_diff_10",
+                "value": avg_gold_diff,
+                "interpretation": "10분 골드와 경험치가 함께 밀리는 경향이 있습니다.",
+                "recommendation": "초반 교전보다 라인 경험치 손실을 줄이는 선택을 우선하고, 불리한 매치업에서는 라인을 당겨 안정적으로 성장해보세요.",
+            }
+        )
+
+    if early_death_rate >= 30:
+        feedback.append(
+            {
+                "category": "laning",
+                "metric": "death_before_14_rate",
+                "value": early_death_rate,
+                "interpretation": "14분 이전 데스가 자주 발생하고 있습니다.",
+                "recommendation": "상대 정글 위치가 보이지 않을 때는 라인을 깊게 밀기보다 와드 타이밍과 미니언 위치를 먼저 확인해보세요.",
+            }
+        )
+
+    if objective_deaths >= 2:
+        feedback.append(
+            {
+                "category": "objective",
+                "metric": "objective_death_count",
+                "value": float(objective_deaths),
+                "interpretation": "주요 오브젝트 직전에 죽는 횟수가 누적되고 있습니다.",
+                "recommendation": "드래곤과 전령 1분 전에는 사이드 압박보다 귀환, 아이템 정비, 강가 시야 확보를 먼저 실행해보세요.",
+            }
+        )
+
+
+def _summarize_phase_metrics(account: RiotAccount, limit: int) -> dict[str, Any]:
+    metrics = list(
+        PlayerMatchPhaseMetric.objects.filter(puuid=account.puuid)
+        .select_related("match")
+        .order_by("-match__game_start_time", "-match__id")[:limit]
+    )
+
+    return {
+        "game_count": len(metrics),
+        "average_lane_cs_diff_10": _average_optional([metric.lane_cs_diff_10 for metric in metrics]),
+        "average_lane_gold_diff_10": _average_optional([metric.lane_gold_diff_10 for metric in metrics]),
+        "average_lane_xp_diff_10": _average_optional([metric.lane_xp_diff_10 for metric in metrics]),
+        "death_before_14_rate": _percent(sum(1 for metric in metrics if metric.death_before_14), len(metrics)),
+        "objective_death_count": sum(metric.objective_death_count for metric in metrics),
+    }
 
 
 def _find_weak_champion(account: RiotAccount, limit: int) -> dict[str, Any] | None:
@@ -193,6 +291,24 @@ def _find_weak_champion(account: RiotAccount, limit: int) -> dict[str, Any] | No
     if not weak_champions:
         return None
     return sorted(weak_champions, key=lambda row: (row["win_rate"], -row["game_count"], row["champion_name"]))[0]
+
+
+def _serialize_phase_metric(
+    metric: PlayerMatchPhaseMetric,
+    participant: MatchParticipant | None,
+) -> dict[str, Any]:
+    return {
+        "match_id": metric.match.match_id,
+        "game_start_time": metric.match.game_start_time,
+        "champion_id": metric.champion_id,
+        "champion_name": participant.champion_name if participant is not None else "",
+        "position": metric.position,
+        "lane_cs_diff_10": metric.lane_cs_diff_10,
+        "lane_gold_diff_10": metric.lane_gold_diff_10,
+        "lane_xp_diff_10": metric.lane_xp_diff_10,
+        "death_before_14": metric.death_before_14,
+        "objective_death_count": metric.objective_death_count,
+    }
 
 
 def _serialize_recent_match(participant: MatchParticipant) -> dict[str, Any]:
@@ -224,6 +340,13 @@ def _average(values: list[int]) -> float:
     if not values:
         return 0.0
     return _round(sum(values) / len(values))
+
+
+def _average_optional(values: list[int | None]) -> float | None:
+    valid_values = [value for value in values if value is not None]
+    if not valid_values:
+        return None
+    return _round(sum(valid_values) / len(valid_values))
 
 
 def _kda(kills: int, deaths: int, assists: int) -> float:
