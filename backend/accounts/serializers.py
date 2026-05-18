@@ -78,3 +78,14 @@ class ChampionPerformanceSerializer(serializers.Serializer):
     average_gold = serializers.FloatField()
     average_vision_score = serializers.FloatField()
     positions = serializers.ListField(child=serializers.CharField())
+
+
+class FeedbackSerializer(serializers.Serializer):
+    """Serializer for rule-based improvement feedback cards."""
+
+    category = serializers.CharField()
+    metric = serializers.CharField()
+    value = serializers.FloatField()
+    interpretation = serializers.CharField()
+    recommendation = serializers.CharField()
+    target = serializers.CharField(required=False, allow_null=True, allow_blank=True)

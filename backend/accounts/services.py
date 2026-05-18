@@ -103,12 +103,96 @@ def get_champion_performance(account: RiotAccount, limit: int = 50) -> list[dict
     return sorted(summaries, key=lambda row: (-row["game_count"], row["champion_name"]))
 
 
+def get_account_feedback(account: RiotAccount, limit: int = 20) -> list[dict[str, Any]]:
+    """Return simple rule-based feedback cards from recent match stats.
+
+    These first-pass thresholds are intentionally easy to explain. They should
+    be revisited after we have more real match samples by position and queue.
+    """
+
+    summary = get_account_summary(account, limit=limit)
+    if summary["game_count"] == 0:
+        return []
+
+    feedback = []
+
+    if summary["average_deaths"] >= 6:
+        feedback.append(
+            {
+                "category": "survival",
+                "metric": "average_deaths",
+                "value": summary["average_deaths"],
+                "interpretation": "최근 경기의 평균 데스가 높은 편입니다.",
+                "recommendation": "불리한 교전은 줄이고, 주요 오브젝트 1분 전에는 무리한 사이드 압박보다 시야 확보와 합류를 우선해보세요.",
+            }
+        )
+
+    if summary["average_cs"] < 150:
+        feedback.append(
+            {
+                "category": "laning",
+                "metric": "average_cs",
+                "value": summary["average_cs"],
+                "interpretation": "최근 경기의 CS 수급이 낮은 편입니다.",
+                "recommendation": "초반 10분 동안 라인 손실을 줄이고, 귀환 전 웨이브를 밀어 넣는 타이밍을 점검해보세요.",
+            }
+        )
+
+    if summary["average_vision_score"] < 20:
+        feedback.append(
+            {
+                "category": "vision",
+                "metric": "average_vision_score",
+                "value": summary["average_vision_score"],
+                "interpretation": "최근 경기의 시야 점수가 낮은 편입니다.",
+                "recommendation": "라인 복귀 전 제어 와드를 준비하고, 드래곤과 전령이 나오기 전에 강가 시야를 먼저 잡아보세요.",
+            }
+        )
+
+    if summary["win_rate"] < 45:
+        feedback.append(
+            {
+                "category": "overall",
+                "metric": "win_rate",
+                "value": summary["win_rate"],
+                "interpretation": "최근 경기 승률이 낮아 개선 우선순위를 정할 필요가 있습니다.",
+                "recommendation": "다음 경기에서는 챔피언 폭을 넓히기보다 가장 익숙한 챔피언 1~2개로 플레이 패턴을 안정화해보세요.",
+            }
+        )
+
+    weak_champion = _find_weak_champion(account, limit=limit)
+    if weak_champion is not None:
+        feedback.append(
+            {
+                "category": "champion_pool",
+                "metric": "champion_win_rate",
+                "value": weak_champion["win_rate"],
+                "target": weak_champion["champion_name"],
+                "interpretation": f"{weak_champion['champion_name']}의 최근 승률이 낮은 편입니다.",
+                "recommendation": "해당 챔피언을 계속 사용한다면 라인전 손실, 데스 타이밍, 오브젝트 합류 중 어느 구간에서 손해가 나는지 먼저 확인해보세요.",
+            }
+        )
+
+    return feedback
+
+
 def _account_participants(account: RiotAccount):
     return (
         MatchParticipant.objects.filter(puuid=account.puuid)
         .select_related("match")
         .order_by("-match__game_start_time", "-match__id")
     )
+
+
+def _find_weak_champion(account: RiotAccount, limit: int) -> dict[str, Any] | None:
+    weak_champions = [
+        champion
+        for champion in get_champion_performance(account, limit=limit)
+        if champion["game_count"] >= 2 and champion["win_rate"] < 50
+    ]
+    if not weak_champions:
+        return None
+    return sorted(weak_champions, key=lambda row: (row["win_rate"], -row["game_count"], row["champion_name"]))[0]
 
 
 def _serialize_recent_match(participant: MatchParticipant) -> dict[str, Any]:

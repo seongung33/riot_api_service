@@ -8,9 +8,15 @@ from .models import RiotAccount
 from .serializers import (
     AccountSummarySerializer,
     ChampionPerformanceSerializer,
+    FeedbackSerializer,
     RecentMatchSerializer,
 )
-from .services import get_account_summary, get_champion_performance, get_recent_matches
+from .services import (
+    get_account_feedback,
+    get_account_summary,
+    get_champion_performance,
+    get_recent_matches,
+)
 
 
 class AccountRecentMatchesView(APIView):
@@ -43,6 +49,16 @@ class AccountChampionPerformanceView(APIView):
             get_champion_performance(account, limit=limit),
             many=True,
         )
+        return Response(serializer.data)
+
+
+class AccountFeedbackView(APIView):
+    """Return rule-based feedback cards for a stored account."""
+
+    def get(self, request, account_id: int):
+        account = get_object_or_404(RiotAccount, id=account_id)
+        limit = _query_limit(request, default=20, maximum=100)
+        serializer = FeedbackSerializer(get_account_feedback(account, limit=limit), many=True)
         return Response(serializer.data)
 
 

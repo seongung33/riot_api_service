@@ -59,6 +59,29 @@ class AccountAnalysisApiTests(TestCase):
         self.assertEqual(response.data[0]["win_rate"], 50.0)
         self.assertEqual(response.data[0]["positions"], ["MIDDLE"])
 
+    def test_feedback_endpoint_returns_rule_based_feedback_cards(self):
+        response = self.api_client.get(reverse("accounts:feedback", args=[self.account.id]))
+
+        self.assertEqual(response.status_code, 200)
+        metrics = {row["metric"]: row for row in response.data}
+        self.assertIn("average_cs", metrics)
+        self.assertEqual(metrics["average_cs"]["category"], "laning")
+        self.assertEqual(metrics["average_cs"]["value"], 138.0)
+        self.assertIn("CS", metrics["average_cs"]["interpretation"])
+
+    def test_feedback_endpoint_returns_empty_list_when_account_has_no_matches(self):
+        empty_account = RiotAccount.objects.create(
+            puuid="empty-puuid",
+            game_name="NoMatch",
+            tag_line="KR1",
+            region="asia",
+        )
+
+        response = self.api_client.get(reverse("accounts:feedback", args=[empty_account.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, [])
+
 
 def _second_match_detail():
     payload = deepcopy(sample_match_detail())
