@@ -1,11 +1,13 @@
 #!/usr/bin/env python
-"""Django's command-line utility for administrative tasks."""
+"""Django 관리 명령어를 실행하는 진입점."""
 import os
 import sys
 
 
 def main() -> None:
-    """Run administrative tasks."""
+    """DJANGO_SETTINGS_MODULE을 지정하고 Django CLI를 실행한다."""
+    # manage.py 명령어가 어느 설정 파일을 사용할지 알려준다.
+    # runserver, test, migrate 모두 이 값을 기준으로 프로젝트 설정을 로드한다.
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "riot_api_service.settings")
 
     try:

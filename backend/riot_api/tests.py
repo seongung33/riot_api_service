@@ -1,4 +1,4 @@
-"""Tests for Riot API integration."""
+"""Riot API client와 import workflow를 검증하는 테스트."""
 
 from unittest.mock import Mock, patch
 
@@ -17,6 +17,7 @@ from .client import RiotApiClient, RiotApiError
 class RiotApiClientTests(TestCase):
     @patch("riot_api.client.requests.Session.get")
     def test_get_account_by_riot_id_encodes_path_and_uses_api_key_header(self, mock_get):
+        # Riot ID의 공백이 URL path에서 인코딩되고, API key가 헤더로 전달되는지 확인한다.
         mock_get.return_value = Mock(status_code=200, json=lambda: {"puuid": "sample-puuid"})
         client = RiotApiClient(api_key="test-key", regional_route="asia")
 
@@ -31,6 +32,7 @@ class RiotApiClientTests(TestCase):
 
     @patch("riot_api.client.requests.Session.get")
     def test_riot_api_error_is_raised_for_error_status(self, mock_get):
+        # Riot API가 4xx/5xx를 반환하면 view에서 처리할 수 있도록 RiotApiError로 올려야 한다.
         mock_get.return_value = Mock(status_code=403, json=lambda: {"status": "forbidden"})
         client = RiotApiClient(api_key="test-key", regional_route="asia")
 
@@ -40,6 +42,8 @@ class RiotApiClientTests(TestCase):
 
 class ImportRecentMatchesViewTests(TestCase):
     def test_import_recent_matches_saves_account_and_match_payloads(self):
+        # 외부 Riot API는 mock으로 대체하고,
+        # import endpoint가 계정/경기/timeline/phase metric 저장까지 이어지는지 검증한다.
         api_client = APIClient()
 
         with patch("riot_api.services.RiotApiClient") as client_class:

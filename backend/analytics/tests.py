@@ -1,4 +1,4 @@
-"""Tests for analytics."""
+"""phase metric 계산 service를 검증하는 테스트."""
 
 from copy import deepcopy
 
@@ -13,6 +13,7 @@ from .services import calculate_account_phase_metrics, calculate_match_phase_met
 
 class PhaseMetricServiceTests(TestCase):
     def test_calculate_match_phase_metrics_compares_lane_frames(self):
+        # 10분 frame을 기준으로 같은 포지션 상대와 CS/골드/경험치 차이를 비교하는지 검증한다.
         match = save_match_bundle(_phase_match_detail(), _phase_timeline_detail())
 
         metrics = calculate_match_phase_metrics(match)
@@ -35,6 +36,7 @@ class PhaseMetricServiceTests(TestCase):
         self.assertEqual(opponent_metric.objective_death_count, 1)
 
     def test_calculate_match_phase_metrics_updates_existing_rows(self):
+        # 같은 경기를 다시 계산해도 update_or_create 때문에 metric row가 중복되지 않아야 한다.
         match = save_match_bundle(_phase_match_detail(), _phase_timeline_detail())
 
         first_metrics = calculate_match_phase_metrics(match)
@@ -44,6 +46,7 @@ class PhaseMetricServiceTests(TestCase):
         self.assertEqual(PlayerMatchPhaseMetric.objects.count(), 2)
 
     def test_calculate_account_phase_metrics_returns_only_requested_player_metrics(self):
+        # 계정 단위 계산은 경기 전체 metric을 만들더라도 요청한 PUUID의 metric만 반환해야 한다.
         match = save_match_bundle(_phase_match_detail(), _phase_timeline_detail())
 
         metrics = calculate_account_phase_metrics("sample-puuid-1")
@@ -54,12 +57,14 @@ class PhaseMetricServiceTests(TestCase):
 
 
 def _phase_match_detail():
+    # phase metric 테스트가 기본 fixture와 충돌하지 않도록 match_id만 바꾼 detail payload를 만든다.
     payload = deepcopy(sample_match_detail())
     payload["metadata"]["matchId"] = "KR_PHASE_0001"
     return payload
 
 
 def _phase_timeline_detail():
+    # 10분 frame과 오브젝트 직전 데스 이벤트를 추가해 lane diff와 objective death 계산을 검증한다.
     payload = deepcopy(sample_timeline_detail())
     payload["metadata"]["matchId"] = "KR_PHASE_0001"
     frames = payload["info"]["frames"]

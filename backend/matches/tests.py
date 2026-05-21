@@ -1,4 +1,4 @@
-"""Tests for matches."""
+"""match detail/timeline 저장 service를 검증하는 테스트."""
 
 from django.test import TestCase
 
@@ -8,6 +8,7 @@ from .services import save_match_bundle
 
 class MatchPersistenceServiceTests(TestCase):
     def test_save_match_bundle_persists_sample_riot_payload(self):
+        # detail과 timeline을 함께 저장했을 때 Match, Participant, Frame, Event가 모두 생성되는지 확인한다.
         match = save_match_bundle(sample_match_detail(), sample_timeline_detail())
 
         self.assertEqual(match.match_id, "KR_1234567890")
@@ -33,6 +34,7 @@ class MatchPersistenceServiceTests(TestCase):
         self.assertEqual(event.assisting_participant_ids, [3, 5])
 
     def test_save_match_bundle_does_not_duplicate_existing_match(self):
+        # 같은 match_id를 다시 저장해도 get_or_create와 중복 방어 로직 때문에 row가 늘어나면 안 된다.
         first_match = save_match_bundle(sample_match_detail(), sample_timeline_detail())
         second_match = save_match_bundle(sample_match_detail(), sample_timeline_detail())
 
@@ -44,6 +46,8 @@ class MatchPersistenceServiceTests(TestCase):
 
 
 def sample_match_detail():
+    # Riot match-v5 detail 응답 형태를 최소한으로 흉내 낸 fixture다.
+    # participant 최종 통계와 team 승패가 Match/MatchParticipant 저장의 원본이 된다.
     return {
         "metadata": {
             "matchId": "KR_1234567890",
@@ -105,6 +109,8 @@ def sample_match_detail():
 
 
 def sample_timeline_detail():
+    # Riot timeline 응답 형태를 흉내 낸 fixture다.
+    # frame은 분 단위 성장 지표, event는 처치/아이템/오브젝트 분석의 원본으로 쓰인다.
     return {
         "metadata": {"matchId": "KR_1234567890"},
         "info": {

@@ -1,4 +1,4 @@
-"""DRF serializers for match endpoints."""
+"""match/timeline 모델을 API 응답 JSON으로 변환하는 serializer."""
 
 from rest_framework import serializers
 
@@ -6,12 +6,14 @@ from .models import Match, MatchParticipant, TimelineEvent, TimelineFrame
 
 
 class MatchParticipantSerializer(serializers.ModelSerializer):
-    """Serializer for participant-level match stats."""
+    """플레이어별 최종 통계를 응답으로 보낼 때 사용하는 serializer."""
 
+    # total_cs는 모델 DB 컬럼이 아니라 property로 계산되는 값이므로 read_only로 노출한다.
     total_cs = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = MatchParticipant
+        # match detail에서 온 원본 수치와 화면에서 바로 쓰는 total_cs를 함께 제공한다.
         fields = [
             "id",
             "match",
@@ -39,7 +41,7 @@ class MatchParticipantSerializer(serializers.ModelSerializer):
 
 
 class TimelineFrameSerializer(serializers.ModelSerializer):
-    """Serializer for minute-level timeline participant state."""
+    """분 단위 timeline frame을 응답으로 변환한다."""
 
     class Meta:
         model = TimelineFrame
@@ -61,7 +63,7 @@ class TimelineFrameSerializer(serializers.ModelSerializer):
 
 
 class TimelineEventSerializer(serializers.ModelSerializer):
-    """Serializer for raw timeline events."""
+    """timeline event 원본을 응답으로 변환한다."""
 
     class Meta:
         model = TimelineEvent
@@ -86,7 +88,7 @@ class TimelineEventSerializer(serializers.ModelSerializer):
 
 
 class MatchSerializer(serializers.ModelSerializer):
-    """Serializer for match metadata."""
+    """경기 단위 메타데이터를 응답으로 변환한다."""
 
     class Meta:
         model = Match
@@ -104,8 +106,10 @@ class MatchSerializer(serializers.ModelSerializer):
 
 
 class MatchDetailSerializer(MatchSerializer):
-    """Serializer for match metadata with participant rows."""
+    """경기 메타데이터와 participant 목록을 함께 내려주는 상세 응답."""
 
+    # related_name="participants"로 연결된 MatchParticipant들을 중첩 응답으로 포함한다.
+    # 경기 상세 화면을 만들 때 별도 API 호출 없이 참가자 목록까지 렌더링할 수 있다.
     participants = MatchParticipantSerializer(many=True, read_only=True)
 
     class Meta(MatchSerializer.Meta):
